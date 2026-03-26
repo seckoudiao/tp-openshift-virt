@@ -1,0 +1,158 @@
+name: Deploy Infrastructure Hybride OpenShift
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NAMESPACE: tp-openshift-virt
+
+jobs:
+  deploy:
+    name: Deploy to OpenShift
+    runs-on: ubuntu-latest
+
+    steps:
+      # ─────────────────────────────────────────
+      # ÉTAPE 1 : Récupérer le code
+      # ─────────────────────────────────────────
+      - name: 📥 Checkout du code
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 2 : Installer le CLI oc
+      # ─────────────────────────────────────────
+      - name: 🔧 Installation du CLI OpenShift (oc)
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          oc: latest
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 3 : Connexion au cluster
+      # ─────────────────────────────────────────
+      - name: 🔐 Connexion au cluster OpenShift
+        run: |
+          oc login \
+            --token=${{ secrets.OC_TOKEN }} \
+            --server=${{ secrets.OC_SERVER }} \
+            --insecure-skip-tls-verify=true
+          echo "✅ Connecté : $(oc whoami)"
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 4 : Créer le namespace
+      # ─────────────────────────────────────────
+      - name: 📁 Création du namespace
+        run: |
+          if oc get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "✅ Namespace ${{ env.NAMESPACE }} existe déjà"
+          else
+            oc new-project ${{ env.NAMESPACE }}
+            echo "✅ Namespace ${{ env.NAMESPACE }} créé"
+          fi
+          oc project ${{ env.NAMESPACE }}
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 5 : Vérifier KubeVirt
+      # ─────────────────────────────────────────
+      - name: 🔍 Vérification OpenShift Virtualization
+        run: |
+          if oc get hyperconverged -n openshift-cnv &>/dev/null; then
+            echo "✅ OpenShift Virtualization installé"
+          else
+            echo "❌ OpenShift Virtualization non installé - installe l'opérateur d'abord !"
+            exit 1
+          fi
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 6 : Déployer les réseaux
+      # ─────────────────────────────────────────
+      - name: 🌐 Déploiement des réseaux (NAD + NetworkPolicy)
+        run: |
+          echo "=== Réseaux DMZ et LAN ==="
+          oc apply -f network/ -n ${{ env.NAMESPACE }}
+          echo ""
+          oc get net-attach-def -n ${{ env.NAMESPACE }}
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 7 : Déployer MySQL (conteneur)
+      # ─────────────────────────────────────────
+      - name: 🐳 Déploiement MySQL (Conteneur OpenShift)
+        run: |
+          echo "=== Secret MySQL ==="
+          oc apply -f conteneur/mysql/secret.yaml -n ${{ env.NAMESPACE }}
+
+          echo "=== PVC MySQL ==="
+          oc apply -f conteneur/mysql/pvc.yaml -n ${{ env.NAMESPACE }}
+
+          echo "=== StatefulSet MySQL ==="
+          oc apply -f conteneur/mysql/statefulset.yaml -n ${{ env.NAMESPACE }}
+
+          echo "=== Service MySQL ==="
+          oc apply -f conteneur/mysql/service.yaml -n ${{ env.NAMESPACE }}
+
+          echo ""
+          echo "⏳ Attente démarrage MySQL (30s)..."
+          sleep 30
+
+          echo "=== État du pod MySQL ==="
+          oc get pods -l app=mysql-db -n ${{ env.NAMESPACE }}
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 8 : Déployer VM2 (Web)
+      # ─────────────────────────────────────────
+      - name: 🌍 Déploiement VM2 - Serveur Web (OpenShift Virt)
+        run: |
+          echo "=== VirtualMachine VM2 Ubuntu Web ==="
+          oc apply -f vms/vm2-web/virtualmachine.yaml -n ${{ env.NAMESPACE }}
+          echo ""
+          oc get vm vm2-web -n ${{ env.NAMESPACE }}
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 9 : Déployer VM1 (pfSense)
+      # ─────────────────────────────────────────
+      - name: 🔥 Déploiement VM1 - Firewall pfSense (OpenShift Virt)
+        run: |
+          echo "=== VirtualMachine VM1 pfSense ==="
+          oc apply -f vms/vm1-pfsense/virtualmachine.yaml -n ${{ env.NAMESPACE }}
+          echo ""
+          oc get vm vm1-pfsense -n ${{ env.NAMESPACE }}
+
+      # ─────────────────────────────────────────
+      # ÉTAPE 10 : Résumé final
+      # ─────────────────────────────────────────
+      - name: 📋 Résumé de l'infrastructure déployée
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║     RÉSUMÉ - TP OpenShift Virt (Architecture Hybride)   ║"
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo ""
+          echo "=== 🖥️  VMs OpenShift Virtualization ==="
+          oc get vm -n ${{ env.NAMESPACE }} -o wide
+
+          echo ""
+          echo "=== 🐳 Conteneurs OpenShift ==="
+          oc get pods -l app=mysql-db -n ${{ env.NAMESPACE }}
+
+          echo ""
+          echo "=== 🌐 Réseaux ==="
+          oc get net-attach-def -n ${{ env.NAMESPACE }}
+
+          echo ""
+          echo "=== 💾 Volumes ==="
+          oc get pvc,dv -n ${{ env.NAMESPACE }}
+
+          echo ""
+          echo "=== 🔒 NetworkPolicies ==="
+          oc get networkpolicy -n ${{ env.NAMESPACE }}
+
+          echo ""
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo "║  ✅ Infrastructure Hybride déployée avec succès !        ║"
+          echo "║                                                          ║"
+          echo "║  VM1  pfSense  → OpenShift Virtualization (VM)          ║"
+          echo "║  VM2  Ubuntu   → OpenShift Virtualization (VM)          ║"
+          echo "║  MySQL         → OpenShift Pod (Conteneur)              ║"
+          echo "╚══════════════════════════════════════════════════════════╝"

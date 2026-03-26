@@ -1,0 +1,193 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm2-web
+  namespace: tp-openshift-virt
+  labels:
+    app: vm2-web
+    role: web-server
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: vm2-web
+        role: web-server
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        memory:
+          guest: 2Gi
+        devices:
+          disks:
+            - name: ubuntu-disk
+              bootOrder: 1
+              disk:
+                bus: virtio
+            - name: cloudinit
+              disk:
+                bus: virtio
+          interfaces:
+            - name: dmz
+              bridge: {}
+              model: virtio
+      networks:
+        - name: dmz
+          multus:
+            networkName: dmz-network
+      volumes:
+        - name: ubuntu-disk
+          dataVolume:
+            name: vm2-ubuntu-dv
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: vm2-web
+              manage_etc_hosts: true
+
+              users:
+                - name: ubuntu
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+
+              write_files:
+                # Configuration réseau statique DMZ
+                - path: /etc/netplan/01-netcfg.yaml
+                  content: |
+                    network:
+                      version: 2
+                      ethernets:
+                        enp1s0:
+                          addresses:
+                            - 192.168.100.10/24
+                          gateway4: 192.168.100.1
+                          nameservers:
+                            addresses: [8.8.8.8, 8.8.4.4]
+
+                # Application Node.js Express
+                - path: /opt/app/server.js
+                  content: |
+                    const express = require('express');
+                    const mysql = require('mysql2');
+                    const app = express();
+                    const PORT = process.env.PORT || 3000;
+
+                    // Connexion MySQL vers le conteneur MySQL (réseau LAN)
+                    const db = mysql.createConnection({
+                      host: process.env.DB_HOST || 'mysql-service',
+                      port: process.env.DB_PORT || 3306,
+                      user: process.env.DB_USER || 'appuser',
+                      password: process.env.DB_PASSWORD || 'AppPass123!',
+                      database: process.env.DB_NAME || 'appdb'
+                    });
+
+                    db.connect((err) => {
+                      if (err) {
+                        console.error('Erreur connexion MySQL:', err.message);
+                      } else {
+                        console.log('Connecté à MySQL (conteneur) avec succès');
+                      }
+                    });
+
+                    app.get('/', (req, res) => {
+                      res.json({
+                        status: 'OK',
+                        message: 'TP OpenShift Virtualization - Architecture Hybride',
+                        vm: 'vm2-web (VirtualMachine OpenShift)',
+                        database: process.env.DB_HOST || 'mysql-service (Conteneur OpenShift)'
+                      });
+                    });
+
+                    app.get('/health', (req, res) => {
+                      res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+                    });
+
+                    app.get('/db-test', (req, res) => {
+                      db.query('SELECT * FROM test_connection', (err, results) => {
+                        if (err) return res.status(500).json({ error: err.message });
+                        res.json({ status: 'DB OK', data: results });
+                      });
+                    });
+
+                    app.listen(PORT, () => {
+                      console.log(`Serveur démarré sur le port ${PORT}`);
+                    });
+
+                # Configuration Nginx reverse proxy
+                - path: /etc/nginx/sites-available/nodeapp
+                  content: |
+                    server {
+                        listen 80;
+                        server_name _;
+
+                        location / {
+                            proxy_pass http://127.0.0.1:3000;
+                            proxy_http_version 1.1;
+                            proxy_set_header Upgrade $http_upgrade;
+                            proxy_set_header Connection 'upgrade';
+                            proxy_set_header Host $host;
+                            proxy_set_header X-Real-IP $remote_addr;
+                            proxy_cache_bypass $http_upgrade;
+                        }
+                    }
+
+                # Service systemd Node.js
+                - path: /etc/systemd/system/nodeapp.service
+                  content: |
+                    [Unit]
+                    Description=Application Node.js TP OpenShift
+                    After=network.target
+
+                    [Service]
+                    Type=simple
+                    User=ubuntu
+                    WorkingDirectory=/opt/app
+                    Environment=DB_HOST=mysql-service
+                    Environment=DB_PORT=3306
+                    Environment=DB_USER=appuser
+                    Environment=DB_PASSWORD=AppPass123!
+                    Environment=DB_NAME=appdb
+                    Environment=PORT=3000
+                    ExecStart=/usr/bin/node /opt/app/server.js
+                    Restart=always
+                    RestartSec=10
+
+                    [Install]
+                    WantedBy=multi-user.target
+
+              runcmd:
+                - apt-get update -y
+                - apt-get upgrade -y
+                - apt-get install -y nginx nodejs npm git curl
+                - netplan apply
+                - cd /opt/app && npm init -y
+                - cd /opt/app && npm install express mysql2
+                - ln -sf /etc/nginx/sites-available/nodeapp /etc/nginx/sites-enabled/nodeapp
+                - rm -f /etc/nginx/sites-enabled/default
+                - nginx -t
+                - systemctl daemon-reload
+                - systemctl enable nginx && systemctl start nginx
+                - systemctl enable nodeapp && systemctl start nodeapp
+
+              final_message: "VM2 Web - Nginx + Node.js démarrés!"
+
+---
+# DataVolume : Image Ubuntu 22.04
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: vm2-ubuntu-dv
+  namespace: tp-openshift-virt
+spec:
+  source:
+    http:
+      url: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+  pvc:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi

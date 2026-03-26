@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-db
+  namespace: tp-openshift-virt
+  labels:
+    app: mysql-db
+    role: database-container
+spec:
+  serviceName: mysql-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-db
+  template:
+    metadata:
+      labels:
+        app: mysql-db
+        role: database-container
+    spec:
+      containers:
+        - name: mysql
+          # Image officielle MySQL 8.0
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+              name: mysql
+          # Variables d'environnement depuis le Secret
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+          # Ressources allouées au conteneur
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          # Montage du volume persistant
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          # Script d'initialisation de la base
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+            - --bind-address=0.0.0.0
+          # Vérification santé du conteneur
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+                - -u
+                - root
+                - -p$(MYSQL_ROOT_PASSWORD)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - mysql
+                - -h
+                - localhost
+                - -u
+                - appuser
+                - -p$(MYSQL_PASSWORD)
+                - -e
+                - "SELECT 1"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+
+---
+# ConfigMap : Script SQL d'initialisation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-script
+  namespace: tp-openshift-virt
+data:
+  init.sql: |
+    USE appdb;
+
+    -- Table de test de connexion
+    CREATE TABLE IF NOT EXISTS test_connection (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      message VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Données de test
+    INSERT INTO test_connection (message)
+    VALUES ('MySQL conteneur OpenShift - TP Architecture Hybride');
+
+    -- Table principale de l'application
+    CREATE TABLE IF NOT EXISTS utilisateurs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      nom VARCHAR(100) NOT NULL,
+      email VARCHAR(150) UNIQUE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Accorder les droits à appuser
+    GRANT ALL PRIVILEGES ON appdb.* TO 'appuser'@'%';
+    FLUSH PRIVILEGES;

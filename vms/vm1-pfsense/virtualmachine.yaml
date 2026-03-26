@@ -1,0 +1,95 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm1-pfsense
+  namespace: tp-openshift-virt
+  labels:
+    app: vm1-pfsense
+    role: firewall-gateway
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: vm1-pfsense
+        role: firewall-gateway
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        memory:
+          guest: 1Gi
+        devices:
+          disks:
+            - name: pfsense-iso
+              bootOrder: 1
+              cdrom:
+                bus: sata
+            - name: pfsense-disk
+              bootOrder: 2
+              disk:
+                bus: virtio
+          interfaces:
+            # WAN - accès Internet
+            - name: wan
+              masquerade: {}
+              model: virtio
+            # DMZ - réseau 192.168.100.0/24
+            - name: dmz
+              bridge: {}
+              model: virtio
+            # LAN - réseau 192.168.10.0/24
+            - name: lan
+              bridge: {}
+              model: virtio
+      networks:
+        - name: wan
+          pod: {}
+        - name: dmz
+          multus:
+            networkName: dmz-network
+        - name: lan
+          multus:
+            networkName: lan-network
+      volumes:
+        - name: pfsense-iso
+          dataVolume:
+            name: pfsense-iso-dv
+        - name: pfsense-disk
+          dataVolume:
+            name: pfsense-disk-dv
+
+---
+# DataVolume : ISO pfSense
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: pfsense-iso-dv
+  namespace: tp-openshift-virt
+spec:
+  source:
+    http:
+      url: "https://atxfiles.netgate.com/mirror/downloads/pfSense-CE-2.7.2-RELEASE-amd64.iso.gz"
+  pvc:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 2Gi
+
+---
+# DataVolume : Disque d'installation pfSense
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: pfsense-disk-dv
+  namespace: tp-openshift-virt
+spec:
+  source:
+    blank: {}
+  pvc:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi

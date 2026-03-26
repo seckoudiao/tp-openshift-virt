@@ -1,0 +1,205 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm3-db
+  namespace: tp-openshift-virt
+  labels:
+    app: vm3-db
+    role: database-server
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: vm3-db
+        role: database-server
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        memory:
+          guest: 2Gi
+        devices:
+          disks:
+            - name: ubuntu-disk
+              bootOrder: 1
+              disk:
+                bus: virtio
+            # Disque de données MySQL (PVC séparé)
+            - name: mysql-data
+              disk:
+                bus: virtio
+            # Disque cloud-init
+            - name: cloudinit
+              disk:
+                bus: virtio
+          interfaces:
+            # LAN uniquement - JAMAIS exposé sur Internet
+            - name: lan
+              bridge: {}
+              model: virtio
+      networks:
+        - name: lan
+          multus:
+            networkName: lan-network
+      volumes:
+        - name: ubuntu-disk
+          dataVolume:
+            name: vm3-ubuntu-dv
+        # Montage du PVC séparé pour les données MySQL
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: vm3-mysql-data-pvc
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: vm3-db
+              manage_etc_hosts: true
+
+              # Création utilisateur ubuntu
+              users:
+                - name: ubuntu
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+
+              # Réseau statique LAN
+              write_files:
+                - path: /etc/netplan/01-netcfg.yaml
+                  content: |
+                    network:
+                      version: 2
+                      ethernets:
+                        enp1s0:
+                          addresses:
+                            - 192.168.10.20/24
+                          gateway4: 192.168.10.1
+                          nameservers:
+                            addresses: [8.8.8.8, 8.8.4.4]
+
+                # Script de configuration MySQL sécurisée
+                - path: /opt/setup-mysql.sh
+                  permissions: '0755'
+                  content: |
+                    #!/bin/bash
+                    set -e
+
+                    echo "=== Configuration MySQL ==="
+
+                    # Attendre que MySQL soit prêt
+                    sleep 10
+
+                    # Préparer le disque de données MySQL (second disque /dev/vdb)
+                    if [ -b /dev/vdb ]; then
+                      mkfs.ext4 /dev/vdb
+                      mkdir -p /var/lib/mysql-data
+                      mount /dev/vdb /var/lib/mysql-data
+                      echo '/dev/vdb /var/lib/mysql-data ext4 defaults 0 2' >> /etc/fstab
+                    fi
+
+                    # Configuration MySQL sécurisée
+                    mysql -u root <<MYSQL_SCRIPT
+                    -- Supprimer les utilisateurs anonymes
+                    DELETE FROM mysql.user WHERE User='';
+
+                    -- Supprimer la base de test
+                    DROP DATABASE IF EXISTS test;
+                    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+
+                    -- Désactiver le login root à distance
+                    UPDATE mysql.user SET Host='localhost' WHERE User='root';
+
+                    -- Créer la base de données de l'application
+                    CREATE DATABASE IF NOT EXISTS appdb
+                      CHARACTER SET utf8mb4
+                      COLLATE utf8mb4_unicode_ci;
+
+                    -- Créer l'utilisateur appuser avec accès depuis le réseau LAN (VM2)
+                    CREATE USER IF NOT EXISTS 'appuser'@'192.168.10.%'
+                      IDENTIFIED BY 'AppPass123!';
+
+                    -- Donner les droits sur la base appdb uniquement
+                    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER
+                      ON appdb.*
+                      TO 'appuser'@'192.168.10.%';
+
+                    -- Créer une table de test
+                    USE appdb;
+                    CREATE TABLE IF NOT EXISTS test_connection (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      message VARCHAR(255),
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    INSERT INTO test_connection (message) VALUES ('MySQL opérationnel - TP OpenShift Virt');
+
+                    -- Appliquer les changements
+                    FLUSH PRIVILEGES;
+                    MYSQL_SCRIPT
+
+                    echo "=== MySQL configuré avec succès ==="
+                    echo "Base: appdb | Utilisateur: appuser | Réseau autorisé: 192.168.10.%"
+
+                # Configuration MySQL pour écouter sur toutes les interfaces
+                - path: /etc/mysql/mysql.conf.d/mysqld-custom.cnf
+                  content: |
+                    [mysqld]
+                    # Écouter sur toutes les interfaces (nécessaire pour VM2)
+                    bind-address = 0.0.0.0
+
+                    # Performances de base
+                    max_connections = 100
+                    innodb_buffer_pool_size = 256M
+
+                    # Logs
+                    general_log = 0
+                    slow_query_log = 1
+                    slow_query_log_file = /var/log/mysql/slow.log
+                    long_query_time = 2
+
+              # Commandes exécutées au premier démarrage
+              runcmd:
+                # Mise à jour système
+                - apt-get update -y
+                - apt-get upgrade -y
+
+                # Application du réseau
+                - netplan apply
+
+                # Installation MySQL 8.0
+                - apt-get install -y mysql-server mysql-client
+
+                # Activer MySQL au démarrage
+                - systemctl enable mysql
+                - systemctl start mysql
+
+                # Exécuter le script de configuration sécurisée
+                - bash /opt/setup-mysql.sh
+
+                # Redémarrer MySQL pour appliquer la config bind-address
+                - systemctl restart mysql
+
+                # Vérification
+                - systemctl status mysql
+                - mysql -u root -e "SHOW DATABASES;"
+                - mysql -u root -e "SELECT User, Host FROM mysql.user;"
+
+              final_message: "VM3 Database Server - MySQL 8.0 installé et configuré avec succès!"
+
+---
+# DataVolume : Image Ubuntu 22.04 cloud
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: vm3-ubuntu-dv
+  namespace: tp-openshift-virt
+spec:
+  source:
+    http:
+      url: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+  pvc:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi

@@ -1,0 +1,17 @@
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: lan-network
+  namespace: tp-openshift-virt
+  annotations:
+    description: "Réseau LAN interne - 192.168.10.0/24 - Héberge MySQL conteneur"
+spec:
+  config: '{
+    "cniVersion": "0.3.1",
+    "name": "lan-network",
+    "type": "bridge",
+    "bridge": "br-lan",
+    "ipam": {
+      "type": "static"
+    }
+  }'

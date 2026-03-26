@@ -1,0 +1,64 @@
+---
+# NetworkPolicy 1 : MySQL (conteneur) accepte UNIQUEMENT depuis VM2
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-vm2-to-mysql
+  namespace: tp-openshift-virt
+  annotations:
+    description: "MySQL (conteneur) accepte port 3306 uniquement depuis VM2 (Web)"
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql-db
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              kubevirt.io/domain: vm2-web
+      ports:
+        - protocol: TCP
+          port: 3306
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              kubevirt.io/domain: vm2-web
+
+---
+# NetworkPolicy 2 : VM2 peut accéder à Internet (mises à jour)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-vm2-internet-egress
+  namespace: tp-openshift-virt
+spec:
+  podSelector:
+    matchLabels:
+      kubevirt.io/domain: vm2-web
+  policyTypes:
+    - Egress
+  egress:
+    - {}
+
+---
+# NetworkPolicy 3 : Bloquer Internet vers MySQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-internet-to-mysql
+  namespace: tp-openshift-virt
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              kubevirt.io/domain: vm2-web

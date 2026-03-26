@@ -56,12 +56,13 @@ jobs:
       # ─────────────────────────────────────────
       # ÉTAPE 5 : Vérifier KubeVirt
       # ─────────────────────────────────────────
-      - name: 🔍 Vérification OpenShift Virtualization
+      - name: Vérifier OpenShift Virtualization
         run: |
-          if oc get hyperconverged -n openshift-cnv &>/dev/null; then
-            echo "✅ OpenShift Virtualization installé"
+          # On vérifie si l'API VirtualMachine est disponible pour l'utilisateur
+          if oc api-resources | grep -q "virtualmachines"; then
+            echo "✅ OpenShift Virtualization est actif et accessible"
           else
-            echo "❌ OpenShift Virtualization non installé - installe l'opérateur d'abord !"
+            echo "❌ L'API VirtualMachine est absente. Contactez l'admin ou vérifiez l'opérateur."
             exit 1
           fi
 

@@ -99,7 +99,7 @@ jobs:
           echo "=== État du pod MySQL ==="
           oc get pods -l app=mysql-db -n ${{ env.NAMESPACE }}
 
-      # ─────────────────────────────────────────
+      # ─────────────────────────────────────────---
       # ÉTAPE 8 : Déployer VM2 (Web)
       # ─────────────────────────────────────────
       - name: 🌍 Déploiement VM2 - Serveur Web (OpenShift Virt)

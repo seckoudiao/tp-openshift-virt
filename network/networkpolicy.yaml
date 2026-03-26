@@ -4,7 +4,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-vm2-to-mysql
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   annotations:
     description: "MySQL (conteneur) accepte port 3306 uniquement depuis VM2 (Web)"
 spec:

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-pvc
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: mysql-db
   annotations:

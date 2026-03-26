@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mysql-db
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: mysql-db
     role: database-container

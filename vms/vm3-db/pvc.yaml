@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: vm3-mysql-data-pvc
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: vm3-db
     role: database-storage

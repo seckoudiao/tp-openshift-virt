@@ -2,7 +2,7 @@ apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: vm2-web
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: vm2-web
     role: web-server

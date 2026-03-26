@@ -2,7 +2,7 @@ apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: vm1-pfsense
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: vm1-pfsense
     role: firewall-gateway

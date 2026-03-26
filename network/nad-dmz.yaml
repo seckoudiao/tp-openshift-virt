@@ -2,7 +2,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: dmz-network
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   annotations:
     description: "Réseau DMZ - 192.168.100.0/24 - Héberge VM2 (Web/Nginx)"
 spec:

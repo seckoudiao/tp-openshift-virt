@@ -2,7 +2,7 @@ apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: vm3-db
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   labels:
     app: vm3-db
     role: database-server

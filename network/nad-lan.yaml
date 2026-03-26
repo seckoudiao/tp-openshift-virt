@@ -2,7 +2,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: lan-network
-  namespace: tp-openshift-virt
+  namespace: seckou-redhat-dev
   annotations:
     description: "Réseau LAN interne - 192.168.10.0/24 - Héberge MySQL conteneur"
 spec:

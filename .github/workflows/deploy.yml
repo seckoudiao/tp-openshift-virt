@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  NAMESPACE: tp-openshift-virt
+  NAMESPACE: seckou-redhat-dev
 
 jobs:
   deploy:
